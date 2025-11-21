@@ -1,0 +1,26 @@
+{
+  "tasks": [
+    {
+      "task_id": "deepseek_pricing_recursive",
+      "name": "DeepSeek定价信息（递归）",
+      "start_url": "https://api-docs.deepseek.com/zh-cn/",
+      "template_path": "template_deepseek_pricing.json",
+      "config": {
+        "enable_recursive": true,
+        "max_depth": 2,
+        "max_pages": 10,
+        "output_dir": "output/deepseek"
+      }
+    },
+    {
+      "task_id": "deepseek_pricing_direct",
+      "name": "DeepSeek定价信息（直达）",
+      "start_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+      "template_path": "template_deepseek_pricing.json",
+      "config": {
+        "enable_recursive": false,
+        "output_dir": "output/deepseek"
+      }
+    }
+  ]
+}

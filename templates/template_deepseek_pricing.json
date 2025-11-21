@@ -1,0 +1,8 @@
+{
+  "模型名称": "DeepSeek的具体模型名称，例如：deepseek-chat、deepseek-reasoner等",
+  "输入价格": "输入token的价格，例如：$0.27/million tokens、¥1/million tokens等",
+  "输出价格": "输出token的价格",
+  "缓存价格": "缓存token的价格（如果有）",
+  "推理价格": "推理token的价格（针对deepseek-reasoner模型，如果有）",
+  "上下文长度": "模型支持的最大上下文长度，例如：64K、128K等"
+}
