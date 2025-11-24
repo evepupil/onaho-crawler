@@ -1,0 +1,21 @@
+{
+  "comment": "两阶段爬取任务配置",
+  "tasks": [
+    {
+      "task_id": "deepseek_pricing_two_stage",
+      "task_name": "deepseek_pricing",
+      "start_url": "https://api-docs.deepseek.com/zh-cn/",
+      "template_path": "templates/template_deepseek_pricing.json",
+      "stage1": {
+        "max_depth": 3,
+        "max_pages": 100,
+        "description": "快速收集所有链接，不使用LLM"
+      },
+      "stage2": {
+        "url_patterns": ["/pricing", "/quick_start"],
+        "batch_size": 10,
+        "description": "根据URL模式过滤，详细爬取并LLM分析"
+      }
+    }
+  ]
+}

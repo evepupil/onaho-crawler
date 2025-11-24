@@ -1,44 +1,51 @@
-# 智能爬虫工作流系统
+# 智能爬虫 - 两阶段爬取系统
 
-基于 crawl4ai 和 LLM 的智能爬虫工作流系统，支持任务管理、调度、并发执行、结果存储等完整功能。
+基于 crawl4ai 和 LLM 的智能爬虫，采用两阶段爬取策略，节省token成本，支持批次爬取和断点续爬。
+
+## 核心特性
+
+✅ **两阶段爬取策略**（省80%+ token）
+- 阶段1: 快速递归爬取所有链接（不使用LLM，不花钱）
+- 阶段2: 根据URL模式过滤产品页，详细爬取并LLM分析
+
+✅ **批次爬取和断点续爬**
+- 链接状态跟踪（已爬取/未爬取）
+- 支持中断后继续
+- 批次处理大型网站
+- 进度自动保存
+
+✅ **智能数据提取**
+- 基于模板的结构化输出
+- LLM 驱动的数据提取
+- 自动去重和验证
 
 ## 目录结构
 
 ```
 crawl4ai_data_crawl/
-├── src/                         # 源代码
-│   ├── smart_crawler.py         # 智能爬虫引擎 ⭐
-│   ├── crawler_workflow.py      # 工作流系统核心 ⭐
-│   ├── cli.py                   # 命令行工具 ⭐
-│   └── product_crawler.py       # 产品爬虫（备用）
+├── src/
+│   └── two_stage_crawler.py    # 两阶段爬虫核心 ⭐
 │
-├── configs/                     # 配置文件
+├── configs/
 │   ├── config.py                # 系统配置（LLM、爬虫参数）⚙️
-│   ├── config.example.py        # 配置示例
-│   └── tasks_config.json        # 任务配置示例
+│   └── two_stage_tasks.json     # 任务配置示例
 │
 ├── templates/                   # 数据提取模板 📋
 │   └── template_*.json
 │
 ├── docs/                        # 文档 📚
-│   ├── QUICKSTART.md            # 快速开始
-│   ├── ARCHITECTURE.md          # 系统架构
+│   ├── BATCH_CRAWLING.md        # 批次爬取和断点续爬详细说明
+│   ├── STRATEGY_COMPARISON.md   # 策略对比
 │   └── DIRECTORY.md             # 目录结构说明
 │
-├── data/                        # 数据存储 💾
-│   └── tasks.json               # 任务队列（自动生成）
+├── output/                      # 爬取结果（按任务名称组织）📊
+│   └── task_name/
+│       ├── .stage1_completed    # 阶段1完成标志
+│       ├── collected_links.json # 收集的所有链接（带状态）
+│       └── products.json        # 提取的产品数据
 │
-├── output/                      # 爬取结果 📊
-│   └── products_*.json
-│
-├── logs/                        # 日志文件 📝
-│
-├── run.py                       # 主入口 🚀
-├── requirements.txt
-└── README.md
+└── requirements.txt
 ```
-
-详细说明见 [docs/DIRECTORY.md](docs/DIRECTORY.md)
 
 ## 快速开始
 
@@ -54,88 +61,12 @@ LLM_CONFIG = {
     "deepseek": {
         "provider": "deepseek/deepseek-chat",
         "api_token": "your-api-key-here",  # 修改这里
-        ...
+        "base_url": "https://api.deepseek.com"
     }
 }
 ```
 
-### 3. 运行爬虫
-
-#### 方式1: 交互式命令行（推荐）
-```bash
-python run.py
-```
-
-进入交互界面后：
-```
-crawler> load configs/tasks_config.json   # 加载任务
-crawler> list                             # 查看任务列表
-crawler> run                              # 执行所有任务
-crawler> show task_001                    # 查看任务详情
-crawler> exit                             # 退出
-```
-
-#### 方式2: 直接命令
-```bash
-# 加载并执行任务
-python run.py load configs/tasks_config.json
-python run.py run
-
-# 查看任务列表
-python run.py list
-```
-
-#### 方式3: 编程方式
-```python
-import asyncio
-from src.crawler_workflow import CrawlerWorkflow
-
-async def main():
-    workflow = CrawlerWorkflow()
-
-    # 创建任务
-    workflow.create_task_from_config(
-        task_id="my_task",
-        name="我的爬取任务",
-        start_url="https://example.com",
-        template_path="templates/my_template.json",
-        enable_recursive=True,
-        max_depth=2
-    )
-
-    # 执行
-    await workflow.run_pending_tasks()
-    workflow.print_summary()
-
-asyncio.run(main())
-```
-
-## 核心功能
-
-✅ **智能爬取**
-- 单页爬取
-- 递归爬取（自动发现子页面）
-- LLM 驱动的数据提取
-- 基于模板的结构化输出
-
-✅ **任务管理**
-- 创建、删除、查询任务
-- 持久化存储
-- 状态追踪
-
-✅ **工作流调度**
-- 串行/并发执行
-- 任务队列管理
-- 结果自动保存
-
-✅ **易用性**
-- 交互式 CLI
-- 批量任务配置
-- 配置文件管理
-
-## 使用示例
-
-### 创建模板
+### 3. 创建数据提取模板
 创建 `templates/my_template.json`:
 ```json
 {
@@ -145,68 +76,181 @@ asyncio.run(main())
 }
 ```
 
-### 创建任务配置
-创建 `configs/my_tasks.json`:
+### 4. 运行爬虫
+
+#### 方式1: 一键运行（推荐）
+
+```python
+from src.two_stage_crawler import TwoStageCrawler
+import asyncio
+
+async def main():
+    crawler = TwoStageCrawler(
+        task_name="my_task",              # 任务名称（输出目录名）
+        start_url="https://example.com",  # 起始URL
+        template_path="templates/my_template.json",
+        llm_config_key="deepseek"
+    )
+
+    # 一键运行（自动检测断点续爬）
+    await crawler.run(
+        url_patterns=["/product/", "/item/"],  # URL过滤模式
+        stage1_max_depth=3,        # 阶段1最大深度
+        stage1_max_pages=100,      # 阶段1最大页面数
+        stage2_batch_size=10       # 阶段2批次大小（每次爬10个）
+    )
+
+asyncio.run(main())
+```
+
+#### 方式2: 分步运行（更灵活）
+
+```python
+crawler = TwoStageCrawler(
+    task_name="my_task",
+    start_url="https://example.com",
+    template_path="templates/my_template.json",
+    llm_config_key="deepseek"
+)
+
+# 阶段1: 收集链接（只需运行一次）
+await crawler.stage1_collect_links(
+    max_depth=3,
+    max_pages=100
+)
+
+# 阶段2: 分批爬取（可以多次运行，自动跳过已爬取的）
+await crawler.stage2_extract_products(
+    url_patterns=["/product/"],
+    batch_size=10,       # 每次爬10个
+    save_interval=5      # 每5个保存一次
+)
+
+# 查看摘要
+crawler.print_summary()
+
+# 保存结果
+crawler.save_products()
+```
+
+### 5. 查看结果
+
+结果保存在 `output/任务名称/` 目录：
+
+**collected_links.json** - 收集的所有链接
 ```json
 {
-  "tasks": [
+  "task_name": "my_task",
+  "total_links": 62,
+  "crawled_count": 10,
+  "links": [
     {
-      "task_id": "task_001",
-      "name": "爬取产品信息",
-      "start_url": "https://example.com",
-      "template_path": "templates/my_template.json",
-      "config": {
-        "enable_recursive": true,
-        "max_depth": 2,
-        "max_pages": 10
-      }
+      "url": "https://example.com/product/1",
+      "crawled": true,
+      "discovered_at": "2025-11-24T16:59:30",
+      "crawled_at": "2025-11-24T17:00:17"
     }
   ]
 }
 ```
 
-### 执行爬取
-```bash
-python run.py
-crawler> load configs/my_tasks.json
-crawler> run
-crawler> list
-```
-
-### 查看结果
-结果保存在 `output/products_*.json`:
+**products.json** - 提取的产品数据
 ```json
 {
+  "task_name": "my_task",
   "template": { ... },
   "crawl_info": {
-    "pages_visited": 7,
-    "products_found": 2,
-    "crawled_at": "2025-11-21T14:25:26"
+    "products_extracted": 2,
+    "last_updated": "2025-11-24T17:00:56"
   },
   "products": [
     {
       "产品名称": "实际提取的名称",
       "价格": "实际提取的价格",
-      "_source_url": "https://example.com/page",
-      "_crawled_at": "2025-11-21T14:25:26"
+      "_source_url": "https://example.com/product/1",
+      "_crawled_at": "2025-11-24T17:00:17"
     }
   ]
 }
 ```
 
-## CLI 命令
+## 使用场景
 
+### 场景1: 大型网站分批爬取
+
+```python
+# 假设网站有500个产品页，分5批完成
+
+crawler = TwoStageCrawler(
+    task_name="large_site",
+    start_url="https://example.com",
+    template_path="templates/product.json",
+    llm_config_key="deepseek"
+)
+
+# 第1天：收集所有链接
+await crawler.stage1_collect_links(max_depth=5, max_pages=1000)
+
+# 第2天：爬取前100个
+await crawler.stage2_extract_products(
+    url_patterns=["/product/"],
+    batch_size=100
+)
+
+# 第3-6天：每天100个，自动跳过已爬取的
+# 多次运行，直到全部完成
 ```
-add <task_id> <name> <url> [template]  - 添加任务
-load <config.json>                     - 从文件加载任务
-list                                   - 列出所有任务
-show <task_id>                         - 显示任务详情
-run [task_id]                          - 执行任务（不指定则执行所有）
-delete <task_id>                       - 删除任务
-clear                                  - 清空所有任务
-help                                   - 显示帮助
-exit                                   - 退出
+
+### 场景2: 意外中断恢复
+
+```python
+# 程序中断后，直接运行 - 自动从断点恢复
+await crawler.run(
+    url_patterns=["/product/"],
+    stage1_max_depth=3,
+    stage1_max_pages=100
+)
+
+# 输出会显示：
+# - 阶段1已完成，跳过
+# - 从文件加载了 62 个链接
+# - 其中已爬取: 15 个，未爬取: 47 个
+# - 继续爬取剩余的47个
 ```
+
+### 场景3: 测试和调试
+
+```python
+# 先小批量测试，确认模板和过滤规则正确
+
+# 阶段1收集链接
+await crawler.stage1_collect_links(max_depth=2, max_pages=50)
+
+# 先爬2个测试
+await crawler.stage2_extract_products(
+    url_patterns=["/product/"],
+    batch_size=2
+)
+
+# 检查结果，确认无误后继续
+await crawler.stage2_extract_products(
+    url_patterns=["/product/"],
+    batch_size=100  # 正式批量爬取
+)
+```
+
+## 为什么选择两阶段爬取？
+
+| 对比项 | 传统边爬边分析 | 两阶段爬取 ⭐ |
+|-------|--------------|-------------|
+| LLM调用次数 | 每个页面1次 | 只对产品页1次 |
+| Token消耗 | 高（100%） | 低（约20%） |
+| 覆盖范围 | 有限 | 全面 |
+| 灵活性 | 低 | 高 |
+| 断点续爬 | 不支持 | 支持 |
+| 批次处理 | 不支持 | 支持 |
+
+**详细对比见**: [docs/STRATEGY_COMPARISON.md](docs/STRATEGY_COMPARISON.md)
 
 ## 配置说明
 
@@ -221,30 +265,55 @@ LLM_CONFIG = {
 }
 ```
 
-### 爬虫配置 (`configs/config.py`)
-```python
-CRAWLER_CONFIG = {
-    "max_depth": 2,              # 最大递归深度
-    "max_pages": 20,             # 最大爬取页面数
-    "output_dir": "output",      # 输出目录
-    "enable_recursive": True,    # 启用递归爬取
-    "template_path": "templates/template_deepseek_pricing.json",
-    "start_url": "https://example.com"
+### 任务配置 (`configs/two_stage_tasks.json`)
+```json
+{
+  "tasks": [
+    {
+      "task_id": "my_task_001",
+      "task_name": "my_task",
+      "start_url": "https://example.com",
+      "template_path": "templates/my_template.json",
+      "stage1": {
+        "max_depth": 3,
+        "max_pages": 100
+      },
+      "stage2": {
+        "url_patterns": ["/product/", "/item/"],
+        "batch_size": 10
+      }
+    }
+  ]
 }
+```
+
+## 重置和重新开始
+
+```bash
+# 删除整个任务目录（完全重新开始）
+rm -rf output/任务名称/
+
+# 只删除阶段1标志（重新收集链接，保留已爬取状态）
+rm output/任务名称/.stage1_completed
+
+# 或在代码中使用 force=True
+await crawler.stage1_collect_links(force=True)
 ```
 
 ## 文档
 
-- **快速开始**: `docs/QUICKSTART.md`
-- **系统架构**: `docs/ARCHITECTURE.md`
+- **批次爬取详细说明**: [docs/BATCH_CRAWLING.md](docs/BATCH_CRAWLING.md)
+- **策略对比**: [docs/STRATEGY_COMPARISON.md](docs/STRATEGY_COMPARISON.md)
+- **目录结构**: [docs/DIRECTORY.md](docs/DIRECTORY.md)
 
-## 扩展方向
+## 优势总结
 
-- 定时调度（APScheduler）
-- Web API（FastAPI）
-- 数据库存储（SQLite/PostgreSQL）
-- 监控告警
-- 分布式执行（Celery）
+✅ **成本低**: 只对产品页调用LLM，节省80%+ token
+✅ **覆盖全**: 可以爬取更多页面，发现更多产品
+✅ **容错强**: 意外中断后可以继续
+✅ **灵活性**: 可以控制每次爬取的数量
+✅ **易调试**: 可以小批量测试后再大规模爬取
+✅ **无重复**: 自动去重，不会重复爬取
 
 ## License
 
