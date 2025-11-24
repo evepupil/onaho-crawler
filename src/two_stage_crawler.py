@@ -12,6 +12,7 @@
 
 import asyncio
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -279,11 +280,23 @@ class TwoStageCrawler:
         过滤出产品链接
 
         Args:
-            url_patterns: URL匹配模式列表，例如 ["/product/", "/item/", "/p/"]
+            url_patterns: URL匹配模式列表，支持两种格式：
+                         1. 字符串包含匹配：如 "/product/", "/item/"
+                         2. 正则表达式（以regex:开头）：如 "regex:/\\d+\\.html$"
             only_uncrawled: 是否只返回未爬取的链接
 
         Returns:
             过滤后的产品链接列表
+
+        示例:
+            # 匹配 /product/ 路径
+            filter_product_links(["/product/", "/item/"])
+
+            # 匹配数字ID.html格式（如 /34435.html）
+            filter_product_links(["regex:/\\d+\\.html$"])
+
+            # 混合使用
+            filter_product_links(["/product/", "regex:/\\d+\\.html$"])
         """
         # 从文件加载（如果all_links为空）
         if not self.all_links:
@@ -293,14 +306,44 @@ class TwoStageCrawler:
             logger.warning("没有可用的链接")
             return []
 
+        # 编译正则表达式模式
+        compiled_patterns = []
+        string_patterns = []
+
+        if url_patterns:
+            for pattern in url_patterns:
+                if pattern.startswith("regex:"):
+                    # 正则表达式模式
+                    regex_str = pattern[6:]  # 移除 "regex:" 前缀
+                    try:
+                        compiled_patterns.append(re.compile(regex_str))
+                        logger.info(f"  使用正则: {regex_str}")
+                    except re.error as e:
+                        logger.warning(f"  正则表达式错误: {regex_str} - {e}")
+                else:
+                    # 字符串包含模式
+                    string_patterns.append(pattern)
+                    logger.info(f"  使用字符串匹配: {pattern}")
+
         # 应用URL模式过滤
         filtered_links = []
         for link in self.all_links:
             url = link['url']
 
             # URL模式匹配
-            if url_patterns and not any(pattern in url for pattern in url_patterns):
-                continue
+            if url_patterns:
+                matched = False
+
+                # 检查字符串包含匹配
+                if string_patterns and any(pattern in url for pattern in string_patterns):
+                    matched = True
+
+                # 检查正则表达式匹配
+                if compiled_patterns and any(pattern.search(url) for pattern in compiled_patterns):
+                    matched = True
+
+                if not matched:
+                    continue
 
             # 爬取状态过滤
             if only_uncrawled and link.get('crawled', False):
@@ -308,7 +351,16 @@ class TwoStageCrawler:
 
             filtered_links.append(link)
 
-        total_matched = len([l for l in self.all_links if url_patterns and any(p in l['url'] for p in url_patterns)])
+        # 统计信息
+        total_matched = 0
+        if url_patterns:
+            for link in self.all_links:
+                url = link['url']
+                if string_patterns and any(p in url for p in string_patterns):
+                    total_matched += 1
+                elif compiled_patterns and any(p.search(url) for p in compiled_patterns):
+                    total_matched += 1
+
         crawled_count = sum(1 for l in self.all_links if l.get('crawled', False))
 
         logger.info(f"链接过滤结果:")
@@ -622,9 +674,111 @@ async def main():
     print("\n🎉 完成！\n")
 
 
+def load_tasks_from_config(config_path: str) -> List[Dict]:
+    """
+    从配置文件加载任务列表
+
+    Args:
+        config_path: 配置文件路径
+
+    Returns:
+        任务配置列表
+    """
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+    return config.get("tasks", [])
+
+
+async def run_from_config(config_path: str, task_id: str = None):
+    """
+    从配置文件运行任务
+
+    Args:
+        config_path: 配置文件路径
+        task_id: 指定任务ID，为None则运行所有任务
+    """
+    print("\n🤖 两阶段智能爬虫（从配置文件加载）")
+    print("="*60)
+    print(f"配置文件: {config_path}")
+    print("="*60)
+
+    # 加载任务配置
+    tasks = load_tasks_from_config(config_path)
+
+    if not tasks:
+        logger.error("配置文件中没有任务")
+        return
+
+    # 过滤指定任务
+    if task_id:
+        tasks = [t for t in tasks if t.get("task_id") == task_id]
+        if not tasks:
+            logger.error(f"未找到任务: {task_id}")
+            return
+
+    logger.info(f"待运行任务数: {len(tasks)}")
+
+    # 运行每个任务
+    for i, task_config in enumerate(tasks, 1):
+        tid = task_config.get("task_id", f"task_{i}")
+        task_name = task_config.get("task_name", tid)
+        start_url = task_config.get("start_url")
+        template_path = task_config.get("template_path")
+
+        # 阶段1配置
+        stage1 = task_config.get("stage1", {})
+        max_depth = stage1.get("max_depth", 3)
+        max_pages = stage1.get("max_pages", 100)
+
+        # 阶段2配置
+        stage2 = task_config.get("stage2", {})
+        url_patterns = stage2.get("url_patterns", [])
+        batch_size = stage2.get("batch_size", None)
+
+        print(f"\n[{i}/{len(tasks)}] 运行任务: {task_name}")
+        print(f"  起始URL: {start_url}")
+        print(f"  模板: {template_path}")
+        print(f"  阶段1: 深度={max_depth}, 最大页面={max_pages}")
+        print(f"  阶段2: 模式={url_patterns}, 批次={batch_size}")
+
+        # 创建爬虫
+        crawler = TwoStageCrawler(
+            task_name=task_name,
+            start_url=start_url,
+            template_path=template_path,
+            llm_config_key="deepseek"
+        )
+
+        # 运行
+        await crawler.run(
+            url_patterns=url_patterns,
+            stage1_max_depth=max_depth,
+            stage1_max_pages=max_pages,
+            stage2_batch_size=batch_size
+        )
+
+        print(f"\n✅ 任务 {task_name} 完成")
+
+    print("\n🎉 所有任务完成！\n")
+
+
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description='两阶段智能爬虫')
+    parser.add_argument('--config', '-f', nargs='?', help='配置文件路径')
+    parser.add_argument('--task', '-t', help='指定任务ID')
+
+    args = parser.parse_args()
+
     try:
-        asyncio.run(main())
+        if args.config:
+            # 从配置文件运行
+            asyncio.run(run_from_config(args.config, args.task))
+        else:
+            # 运行默认演示
+            asyncio.run(main())
     except KeyboardInterrupt:
         print("\n\n🛑 用户中断")
     except Exception as e:
